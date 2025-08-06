@@ -367,29 +367,32 @@ def get_overall_action(df):
     return signals, overall_action
 
 def fetch_recent_news(symbol, max_items=5):
-    """Fetch recent news headlines for the symbol using yfinance."""
+    """Fetch recent news headlines for the symbol using yfinance and Copilot (placeholder)."""
+    headlines = []
+    # Try yfinance first
     try:
         ticker = yf.Ticker(symbol)
         news_items = getattr(ticker, "news", [])
-        if not news_items or not isinstance(news_items, list):
-            return ["No recent news found."]
-        headlines = []
-        for item in news_items[:max_items]:
-            title = item.get("title", "")
-            publisher = item.get("publisher", "")
-            link = item.get("link", "")
-            # Only add if title and link are present
-            if title and link:
-                headlines.append(f"- [{title}]({link}) ({publisher})")
-        return headlines if headlines else ["No recent news found."]
-    except Exception as e:
-        return [f"Error fetching news: {str(e)}"]
+        if news_items and isinstance(news_items, list):
+            for item in news_items[:max_items]:
+                title = item.get("title", "")
+                publisher = item.get("publisher", "")
+                link = item.get("link", "")
+                if title and link:
+                    headlines.append(f"- [{title}]({link}) ({publisher})")
+    except Exception:
+        pass
+    # If no news from yfinance, try Copilot News API (placeholder)
+    if not headlines:
+        # Placeholder: Copilot integration would go here
+        headlines.append("No recent news found from yfinance. Copilot news integration required.")
+    return headlines if headlines else ["No recent news found."]
 
 def summarize_news_movement(symbol):
     """Return a summary sentence about recent news and price movement."""
     try:
         ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="5d", interval="1d")
+        hist = ticker.history(period="2d", interval="1d")
         if hist.empty or len(hist) < 2 or 'Close' not in hist.columns:
             return "No recent price data available."
         prev_close = hist['Close'].iloc[-2]
@@ -400,7 +403,6 @@ def summarize_news_movement(symbol):
         price_change_pct = (price_change / prev_close) * 100
         direction = "up" if price_change > 0 else "down" if price_change < 0 else "flat"
         news = fetch_recent_news(symbol, max_items=3)
-        # Only use titles for summary, skip empty/error lines
         news_titles = []
         for item in news:
             if item.startswith("- [") and "](" in item:
@@ -411,11 +413,11 @@ def summarize_news_movement(symbol):
                     news_titles.append(title)
         news_summary = "; ".join(news_titles)
         if direction == "up":
-            return f"Stock moved up {price_change_pct:+.2f}% yesterday. Recent news: {news_summary if news_summary else 'No major headlines.'}"
+            return f"Stock is up {price_change_pct:+.2f}% today. Latest news: {news_summary if news_summary else 'No major headlines.'}"
         elif direction == "down":
-            return f"Stock moved down {price_change_pct:+.2f}% yesterday. Recent news: {news_summary if news_summary else 'No major headlines.'}"
+            return f"Stock is down {price_change_pct:+.2f}% today. Latest news: {news_summary if news_summary else 'No major headlines.'}"
         else:
-            return f"Stock was flat yesterday. Recent news: {news_summary if news_summary else 'No major headlines.'}"
+            return f"Stock is flat today. Latest news: {news_summary if news_summary else 'No major headlines.'}"
     except Exception:
         return "Unable to summarize recent movement."
 
