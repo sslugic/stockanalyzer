@@ -7,6 +7,8 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 from datetime import datetime, timedelta
 import ta
+import json
+import os
 
 # Configure page
 st.set_page_config(
@@ -38,6 +40,8 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+PORTFOLIO_FILE = "portfolio.json"
 
 
 def calculate_technical_indicators(df):
@@ -210,12 +214,30 @@ def create_main_chart(df, symbol):
     return fig
 
 
+def load_portfolio():
+    if os.path.exists(PORTFOLIO_FILE):
+        try:
+            with open(PORTFOLIO_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+
+def save_portfolio(portfolio):
+    try:
+        with open(PORTFOLIO_FILE, "w") as f:
+            json.dump(portfolio, f)
+    except Exception:
+        pass
+
+
 def portfolio_tab():
     st.header("💼 My Portfolio")
 
-    # Initialize portfolio in session state
+    # Initialize portfolio in session state and load from file if not set
     if "portfolio" not in st.session_state:
-        st.session_state.portfolio = []
+        st.session_state.portfolio = load_portfolio()
 
     # Add stock to portfolio
     with st.form("add_stock_form"):
@@ -225,6 +247,7 @@ def portfolio_tab():
             symbol = new_symbol.strip().upper()
             if symbol not in st.session_state.portfolio:
                 st.session_state.portfolio.append(symbol)
+                save_portfolio(st.session_state.portfolio)
                 st.success(f"Added {symbol} to portfolio.")
             else:
                 st.warning(f"{symbol} is already in your portfolio.")
@@ -234,6 +257,7 @@ def portfolio_tab():
         remove_symbol = st.selectbox("Remove Stock", st.session_state.portfolio)
         if st.button("Remove Selected Stock"):
             st.session_state.portfolio.remove(remove_symbol)
+            save_portfolio(st.session_state.portfolio)
             st.success(f"Removed {remove_symbol} from portfolio.")
 
     # Display portfolio table
@@ -276,6 +300,7 @@ def portfolio_tab():
     else:
         st.info("Your portfolio is empty. Add stocks to get started.")
 
+
 def main():
     # Add tabs for Dashboard and Portfolio
     tab1, tab2 = st.tabs(["Dashboard", "Portfolio"])
@@ -290,11 +315,11 @@ def main():
         interval_options = ["1d", "5d", "1wk", "1mo"]
         interval = st.sidebar.selectbox("Data Interval", interval_options, index=0)
 
-        # Auto-refresh option
-        auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)")
-
+        # Auto-refresh option (checked by default, 60s)
+        auto_refresh = st.sidebar.checkbox("Auto-refresh (60s)", value=True)
         if auto_refresh:
-            st.sidebar.info("Dashboard will refresh every 30 seconds")
+            st.sidebar.info("Dashboard will refresh every 60 seconds")
+            st.query_params.update({"_": datetime.now().timestamp()})  # updated API
 
         if st.sidebar.button("Analyze Stock") or auto_refresh:
             try:
@@ -406,7 +431,7 @@ def main():
 
                 # Auto-refresh
                 if auto_refresh:
-                    st.rerun()
+                    st.experimental_rerun()
 
             except Exception as e:
                 st.error(f"Error fetching data: {str(e)}")
