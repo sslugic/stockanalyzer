@@ -367,15 +367,17 @@ def get_overall_action(df):
     return signals, overall_action
 
 def fetch_recent_news(symbol, max_items=5):
-    """Fetch recent news headlines for the symbol using Copilot (simulated)."""
+    """Fetch recent news headlines for the symbol using Copilot (simulated). Returns a paragraph summary."""
     # Simulate Copilot API call for latest news
     # In real usage, replace this with actual Copilot API integration
     copilot_news = [
-        f"- [Copilot: {symbol} hits new high on strong earnings](https://news.example.com/{symbol}/earnings) (Copilot AI)",
-        f"- [Copilot: {symbol} sees increased institutional buying](https://news.example.com/{symbol}/institutions) (Copilot AI)",
-        f"- [Copilot: Analyst upgrades {symbol} to 'Buy'](https://news.example.com/{symbol}/upgrade) (Copilot AI)"
+        f"{symbol} hit a new high today following a strong earnings report that exceeded analyst expectations. The company announced record revenue and profit, which led to a surge in investor confidence.",
+        f"Institutional investors have increased their holdings in {symbol}, signaling strong market support. Several large funds disclosed new positions, contributing to upward price momentum.",
+        f"Analysts have upgraded {symbol} to a 'Buy' rating, citing robust growth prospects and positive market sentiment. The upgrade comes after a series of favorable news releases and financial results."
     ]
-    return copilot_news[:max_items]
+    # Join the news into a couple of paragraphs
+    summary = "\n\n".join(copilot_news[:max_items])
+    return summary
 
 def summarize_news_movement(symbol):
     """Return a summary sentence about recent news and price movement using Copilot news."""
@@ -667,12 +669,10 @@ def main():
                 'Volume': '{:,}'
             }))
 
-            # --- News Feed section at the bottom ---
+            # --- News Feed section at the bottom as paragraphs ---
             st.markdown("#### 📰 Latest News Feed (Copilot)")
-            news_headlines = fetch_recent_news(display_symbol, max_items=5)
-            for headline in news_headlines:
-                if headline and isinstance(headline, str):
-                    st.markdown(headline)
+            news_paragraphs = fetch_recent_news(display_symbol, max_items=2)
+            st.write(news_paragraphs)
 
             # Auto-refresh
             if auto_refresh:
