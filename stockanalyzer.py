@@ -477,13 +477,11 @@ def main():
         interval_options = ["1d", "5d", "1wk", "1mo"]
         interval = st.sidebar.selectbox("Data Interval", interval_options, index=0)
 
-        # Auto-refresh every 60 seconds (using streamlit_autorefresh)
-        auto_refresh = st.sidebar.checkbox("Auto-refresh (60s)", value=True)
+        # Disable auto-refresh and set box to unchecked by default
+        auto_refresh = st.sidebar.checkbox("Auto-refresh (60s)", value=False)
         if auto_refresh:
             st.sidebar.info("Dashboard will refresh every 60 seconds")
-            # Use streamlit_autorefresh for proper interval
-            from streamlit_autorefresh import st_autorefresh
-            st_autorefresh(interval=60000, key="dashboard_autorefresh")
+            # No auto-refresh logic
 
         analyze_clicked = st.sidebar.button("Analyze Stock")
 
@@ -532,7 +530,7 @@ def main():
                     st.session_state.portfolio.append(display_symbol)
                     st.success(f"Added {display_symbol} to portfolio.")
                     # Force rerun to reload context and update portfolio
-                    st.experimental_rerun()
+                    st._rerun()
                 else:
                     st.warning(f"{display_symbol} is already in your portfolio.")
             # Metrics
