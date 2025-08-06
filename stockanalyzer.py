@@ -65,96 +65,182 @@ def calculate_technical_indicators(df):
     df['Stoch_k'] = ta.momentum.stoch(df['High'], df['Low'], df['Close'])
     df['Stoch_d'] = ta.momentum.stoch_signal(df['High'], df['Low'], df['Close'])
 
-    # Volume indicators
-    df['Volume_SMA'] = df['Volume'].rolling(window=20).mean()
-
     return df
 
 
+def compute_rsi(prices, length=14):
+    if len(prices) < length + 1:
+        return None
+    gains = []
+    losses = []
+    for i in range(1, length + 1):
+        delta = prices[i] - prices[i - 1]
+        if delta >= 0:
+            gains.append(delta)
+            losses.append(0)
+        else:
+            gains.append(0)
+            losses.append(-delta)
+    avg_gain = sum(gains) / length
+    avg_loss = sum(losses) / length
+    if avg_loss == 0:
+        return 100
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+def ema(prices, length):
+    multiplier = 2 / (length + 1)
+    ema_values = [prices[0]]
+    for price in prices[1:]:
+        ema_values.append((price - ema_values[-1]) * multiplier + ema_values[-1])
+    return ema_values
+
+def macd_signal(prices):
+    min_required = max(12, 26) + 4
+    if len(prices) < min_required:
+        return "N", 0, "Flat/Neutral"
+    ema_fast = np.array(ema(prices, 12))
+    ema_slow = np.array(ema(prices, 26))
+    min_len = min(len(ema_fast), len(ema_slow))
+    macd_line = ema_fast[-min_len:] - ema_slow[-min_len:]
+    signal_line = np.array(ema(macd_line.tolist(), 9))
+    hist_len = min(len(macd_line), len(signal_line))
+    macd_line = macd_line[-hist_len:]
+    signal_line = signal_line[-hist_len:]
+    histogram = macd_line - signal_line
+    recent_hist = histogram[-3:]
+    current_hist = histogram[-1]
+    prev_hist = histogram[-2]
+    macd_now = macd_line[-1]
+    signal_now = signal_line[-1]
+    slope = np.diff(histogram)
+    slope_now = slope[-1] if len(slope) > 0 else 0
+    if current_hist > 0 and slope_now > 0:
+        macd_confidence = "Strong Bullish"
+    elif current_hist > 0 and slope_now < 0:
+        macd_confidence = "Fading Bullish"
+    elif current_hist < 0 and slope_now < 0:
+        macd_confidence = "Strong Bearish"
+    elif current_hist < 0 and slope_now > 0:
+        macd_confidence = "Fading Bearish"
+    else:
+        macd_confidence = "Flat/Neutral"
+    if macd_now > signal_now:
+        if all(h > 0 for h in recent_hist) and recent_hist[-1] > recent_hist[1]:
+            status = "Y"
+        elif current_hist > 0:
+            status = "W"
+        else:
+            status = "N"
+    elif current_hist > 0 and prev_hist < 0:
+        status = "Y"
+    else:
+        status = "N"
+    score = {"Y": 2, "W": 1, "N": 0}[status]
+    return status, score, macd_confidence
+
+def get_vix():
+    try:
+        vix = yf.Ticker("^VIX").history(period="25d")
+        return vix["Close"].iloc[-1]
+    except Exception:
+        return None
+
+def qqq_momentum():
+    try:
+        hist = yf.Ticker("QQQ").history(period="50d")["Close"]
+        return hist.iloc[-1] > hist.iloc[-2]
+    except Exception:
+        return False
+
 def generate_signals(df, symbol=None):
-    """Generate buy/sell signals based on MACD, RSI, QQQ, Price, VIX, Volume. Returns list of signals and score dict."""
+    """Generate buy/sell/hold signals using improved thresholds."""
     signals = []
     scores = {"BUY": 0, "SELL": 0, "HOLD": 0}
-    latest = df.iloc[-1]
-    prev = df.iloc[-2]
+    prices = df['Close'].tolist()
+    rsi_val = compute_rsi(prices[-15:]) if len(prices) >= 15 else None
+    macd_status, macd_score, macd_confidence = macd_signal(prices[-90:] if len(prices) >= 90 else prices)
+    vix_val = get_vix()
+    qqq_up = qqq_momentum()
+    price_now = prices[-1] if prices else None
 
-    # Fetch QQQ (market trend) and VIX (volatility index)
-    try:
-        qqq = yf.Ticker("QQQ").history(period="1mo", interval="1d")
-        vix = yf.Ticker("^VIX").history(period="1mo", interval="1d")
-        qqq_trend = qqq['Close'].iloc[-1] - qqq['Close'].iloc[-5] if len(qqq) > 5 else 0
-        vix_level = vix['Close'].iloc[-1] if not vix.empty else None
-    except Exception:
-        qqq_trend = 0
-        vix_level = None
+    # --- RSI ---
+    if rsi_val is not None:
+        if rsi_val < 30:
+            signals.append(("RSI", "BUY", f"RSI oversold at {rsi_val:.2f}"))
+            scores["BUY"] += 1
+        elif rsi_val > 70:
+            signals.append(("RSI", "SELL", f"RSI overbought at {rsi_val:.2f}"))
+            scores["SELL"] += 1
+        elif 30 <= rsi_val <= 70:
+            signals.append(("RSI", "HOLD", f"RSI neutral at {rsi_val:.2f}"))
+            scores["HOLD"] += 1
 
-    # MACD Signal
-    if latest['MACD'] > latest['MACD_signal'] and prev['MACD'] <= prev['MACD_signal']:
-        signals.append(("MACD", "BUY", "MACD crossed above signal line"))
+    # --- VIX ---
+    if vix_val is not None:
+        if vix_val < 15:
+            signals.append(("VIX", "BUY", f"Very low volatility (VIX={vix_val:.2f})"))
+            scores["BUY"] += 1
+        elif 15 <= vix_val <= 20:
+            signals.append(("VIX", "HOLD", f"Moderate volatility (VIX={vix_val:.2f})"))
+            scores["HOLD"] += 1
+        elif vix_val > 20:
+            signals.append(("VIX", "SELL", f"High volatility (VIX={vix_val:.2f})"))
+            scores["SELL"] += 1
+
+    # --- MACD ---
+    if macd_score == 2 and macd_confidence == "Strong Bullish":
+        signals.append(("MACD", "BUY", f"MACD Strong Bullish ({macd_confidence})"))
         scores["BUY"] += 1
-    elif latest['MACD'] < latest['MACD_signal'] and prev['MACD'] >= prev['MACD_signal']:
-        signals.append(("MACD", "SELL", "MACD crossed below signal line"))
+    elif macd_score == 1 and macd_confidence in ["Fading Bullish"]:
+        signals.append(("MACD", "HOLD", f"MACD Fading Bullish ({macd_confidence})"))
+        scores["HOLD"] += 1
+    elif macd_score == 0 and macd_confidence in ["Strong Bearish", "Fading Bearish"]:
+        signals.append(("MACD", "SELL", f"MACD Bearish ({macd_confidence})"))
         scores["SELL"] += 1
+    else:
+        signals.append(("MACD", "HOLD", f"MACD Neutral ({macd_confidence})"))
+        scores["HOLD"] += 1
 
-    # RSI Signal
-    if latest['RSI'] < 30:
-        signals.append(("RSI", "BUY", f"RSI oversold at {latest['RSI']:.2f}"))
-        scores["BUY"] += 1
-    elif latest['RSI'] > 70:
-        signals.append(("RSI", "SELL", f"RSI overbought at {latest['RSI']:.2f}"))
-        scores["SELL"] += 1
-
-    # Price action
-    if latest['Close'] > latest['SMA_20']:
-        signals.append(("Price", "BUY", "Price above 20-day SMA"))
-        scores["BUY"] += 1
-    elif latest['Close'] < latest['SMA_20']:
-        signals.append(("Price", "SELL", "Price below 20-day SMA"))
-        scores["SELL"] += 1
-
-    # Volume spike
-    if latest['Volume'] > 1.5 * latest['Volume_SMA']:
-        signals.append(("Volume", "BUY", "Unusual volume spike"))
-        scores["BUY"] += 1
-    elif latest['Volume'] < 0.5 * latest['Volume_SMA']:
-        signals.append(("Volume", "SELL", "Unusually low volume"))
-        scores["SELL"] += 1
-
-    # QQQ market context
-    if qqq_trend > 0:
+    # --- QQQ ---
+    if qqq_up:
         signals.append(("QQQ", "BUY", "QQQ trending up (bullish market)"))
         scores["BUY"] += 1
-    elif qqq_trend < 0:
-        signals.append(("QQQ", "SELL", "QQQ trending down (bearish market)"))
+    else:
+        signals.append(("QQQ", "SELL", "QQQ flat/down (bearish market)"))
         scores["SELL"] += 1
 
-    # VIX volatility context
-    if vix_level is not None:
-        if vix_level > 20:
-            signals.append(("VIX", "SELL", f"High volatility (VIX={vix_level:.2f})"))
-            scores["SELL"] += 1
-        elif vix_level < 15:
-            signals.append(("VIX", "BUY", f"Low volatility (VIX={vix_level:.2f})"))
-            scores["BUY"] += 1
+    # --- Final action scoring ---
+    buy_count = scores["BUY"]
+    sell_count = scores["SELL"]
+    hold_count = scores["HOLD"]
 
-    # If no BUY/SELL, count as HOLD
-    if scores["BUY"] == 0 and scores["SELL"] == 0:
-        signals.append(("Summary", "HOLD", "No strong signals"))
-        scores["HOLD"] += 1
+    if buy_count >= 3 and sell_count == 0:
+        signals.append(("Summary", "BUY", "Strong Buy Signal"))
+    elif sell_count >= 2 and buy_count == 0:
+        signals.append(("Summary", "SELL", "Strong Sell Signal"))
+    elif buy_count > sell_count and buy_count >= 2:
+        signals.append(("Summary", "BUY", "Buy Signal"))
+    elif sell_count > buy_count and sell_count >= 2:
+        signals.append(("Summary", "SELL", "Sell Signal"))
+    else:
+        signals.append(("Summary", "HOLD", "Hold Signal"))
 
     return signals, scores
 
 def score_signals(scores):
     """Aggregate scores and return overall action."""
     buy_count = scores.get("BUY", 0)
-    if buy_count >= 5:
+    sell_count = scores.get("SELL", 0)
+    hold_count = scores.get("HOLD", 0)
+    if buy_count >= 3 and sell_count == 0:
         return "STRONG BUY"
-    elif buy_count == 4:
+    elif buy_count > sell_count and buy_count >= 2:
         return "BUY"
-    elif 2 <= buy_count <= 3:
-        return "HOLD"
-    else:
+    elif sell_count > buy_count and sell_count >= 2:
         return "SELL"
+    else:
+        return "HOLD"
 
 
 def create_main_chart(df, symbol):
@@ -163,7 +249,7 @@ def create_main_chart(df, symbol):
         rows=4, cols=1,
         shared_xaxes=True,
         vertical_spacing=0.03,
-        subplot_titles=(f'{symbol} Stock Price', 'Volume', 'MACD', 'RSI'),
+        subplot_titles=(f'{symbol} Stock Price', 'MACD', 'RSI'),
         row_width=[0.2, 0.1, 0.1, 0.1]
     )
 
@@ -205,14 +291,6 @@ def create_main_chart(df, symbol):
         fill='tonexty',
         opacity=0.3
     ), row=1, col=1)
-
-    # Volume
-    colors = ['red' if row['Close'] < row['Open'] else 'green' for index, row in df.iterrows()]
-    fig.add_trace(go.Bar(
-        x=df.index, y=df['Volume'],
-        name='Volume',
-        marker_color=colors
-    ), row=2, col=1)
 
     # MACD
     fig.add_trace(go.Scatter(
@@ -395,12 +473,9 @@ def main():
                               f"{price_change:+.2f} ({price_change_pct:+.2f}%)")
 
                 with col2:
-                    st.metric("Volume", f"{df['Volume'].iloc[-1]:,}")
-
-                with col3:
                     st.metric("RSI", f"{df['RSI'].iloc[-1]:.2f}")
 
-                with col4:
+                with col3:
                     st.metric("Sector", sector)
 
                 # Display signals
