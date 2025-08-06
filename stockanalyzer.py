@@ -384,8 +384,9 @@ def fetch_recent_news(symbol, max_items=5):
         pass
     # If no news from yfinance, try Copilot News API (placeholder)
     if not headlines:
-        # Placeholder: Copilot integration would go here
-        headlines.append("No recent news found from yfinance. Copilot news integration required.")
+        # Integration with Copilot (placeholder)
+        # Example: headlines = copilot_get_latest_news(symbol, max_items)
+        headlines.append("No recent news found from yfinance. Latest news can be retrieved via Copilot integration.")
     return headlines if headlines else ["No recent news found."]
 
 def summarize_news_movement(symbol):
