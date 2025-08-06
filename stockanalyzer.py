@@ -7,8 +7,6 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 from datetime import datetime, timedelta
 import ta
-import json
-import os
 
 # Configure page
 st.set_page_config(
@@ -40,8 +38,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-PORTFOLIO_FILE = "portfolio.json"
 
 
 def calculate_technical_indicators(df):
@@ -214,30 +210,12 @@ def create_main_chart(df, symbol):
     return fig
 
 
-def load_portfolio():
-    if os.path.exists(PORTFOLIO_FILE):
-        try:
-            with open(PORTFOLIO_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
-
-
-def save_portfolio(portfolio):
-    try:
-        with open(PORTFOLIO_FILE, "w") as f:
-            json.dump(portfolio, f)
-    except Exception:
-        pass
-
-
 def portfolio_tab():
     st.header("💼 My Portfolio")
 
-    # Initialize portfolio in session state and load from file if not set
+    # Initialize portfolio in session state
     if "portfolio" not in st.session_state:
-        st.session_state.portfolio = load_portfolio()
+        st.session_state.portfolio = []
 
     # Add stock to portfolio
     with st.form("add_stock_form"):
@@ -247,7 +225,6 @@ def portfolio_tab():
             symbol = new_symbol.strip().upper()
             if symbol not in st.session_state.portfolio:
                 st.session_state.portfolio.append(symbol)
-                save_portfolio(st.session_state.portfolio)
                 st.success(f"Added {symbol} to portfolio.")
             else:
                 st.warning(f"{symbol} is already in your portfolio.")
@@ -257,13 +234,13 @@ def portfolio_tab():
         remove_symbol = st.selectbox("Remove Stock", st.session_state.portfolio)
         if st.button("Remove Selected Stock"):
             st.session_state.portfolio.remove(remove_symbol)
-            save_portfolio(st.session_state.portfolio)
             st.success(f"Removed {remove_symbol} from portfolio.")
 
     # Display portfolio table
     if st.session_state.portfolio:
         st.subheader("📋 Portfolio Overview")
         portfolio_data = []
+        signal_types = []
         for symbol in st.session_state.portfolio:
             try:
                 ticker = yf.Ticker(symbol)
@@ -278,7 +255,14 @@ def portfolio_tab():
                 sector = info.get('sector', 'N/A')
                 price = latest['Close']
                 rsi = latest['RSI']
-                signal_summary = ", ".join([f"{s[1]} ({s[0]})" for s in signals]) if signals else "HOLD"
+                # Determine main signal type for coloring
+                if signals:
+                    # Use first signal type for coloring
+                    main_signal = signals[0][1]
+                    signal_summary = ", ".join([f"{s[1]} ({s[0]})" for s in signals])
+                else:
+                    main_signal = "HOLD"
+                    signal_summary = "HOLD"
                 portfolio_data.append({
                     "Symbol": symbol,
                     "Company": company_name,
@@ -287,6 +271,7 @@ def portfolio_tab():
                     "RSI": f"{rsi:.2f}",
                     "Signals": signal_summary
                 })
+                signal_types.append(main_signal)
             except Exception as e:
                 portfolio_data.append({
                     "Symbol": symbol,
@@ -296,10 +281,27 @@ def portfolio_tab():
                     "RSI": "-",
                     "Signals": f"Error: {str(e)}"
                 })
-        st.dataframe(pd.DataFrame(portfolio_data))
+                signal_types.append("HOLD")
+
+        df_portfolio = pd.DataFrame(portfolio_data)
+
+        def highlight_signals(val, signal_type):
+            color_map = {
+                "BUY": "background-color: #f6fff6; border-left: 4px solid #7fc97f;",
+                "SELL": "background-color: #fff6f6; border-left: 4px solid #f0027f;",
+                "HOLD": "background-color: #fdfbe6; border-left: 4px solid #fdc086;"
+            }
+            return color_map.get(signal_type, "background-color: #fdfbe6; border-left: 4px solid #fdc086;")
+
+        # Apply background color to "Signals" column
+        def style_signals(row):
+            idx = row.name
+            signal_type = signal_types[idx] if idx < len(signal_types) else "HOLD"
+            return ["" if col != "Signals" else highlight_signals(row["Signals"], signal_type) for col in row.index]
+
+        st.dataframe(df_portfolio.style.apply(style_signals, axis=1))
     else:
         st.info("Your portfolio is empty. Add stocks to get started.")
-
 
 def main():
     # Add tabs for Dashboard and Portfolio
@@ -315,11 +317,11 @@ def main():
         interval_options = ["1d", "5d", "1wk", "1mo"]
         interval = st.sidebar.selectbox("Data Interval", interval_options, index=0)
 
-        # Auto-refresh option (checked by default, 60s)
-        auto_refresh = st.sidebar.checkbox("Auto-refresh (60s)", value=True)
+        # Auto-refresh option
+        auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)")
+
         if auto_refresh:
-            st.sidebar.info("Dashboard will refresh every 60 seconds")
-            st.query_params.update({"_": datetime.now().timestamp()})  # updated API
+            st.sidebar.info("Dashboard will refresh every 30 seconds")
 
         if st.sidebar.button("Analyze Stock") or auto_refresh:
             try:
@@ -431,7 +433,7 @@ def main():
 
                 # Auto-refresh
                 if auto_refresh:
-                    st.experimental_rerun()
+                    st.rerun()
 
             except Exception as e:
                 st.error(f"Error fetching data: {str(e)}")
