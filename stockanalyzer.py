@@ -530,7 +530,7 @@ def main():
                     st.session_state.portfolio.append(display_symbol)
                     st.success(f"Added {display_symbol} to portfolio.")
                     # Force rerun to reload context and update portfolio
-                    st._rerun()
+                    st.experimental_rerun()
                 else:
                     st.warning(f"{display_symbol} is already in your portfolio.")
             # Metrics
