@@ -367,21 +367,27 @@ def get_overall_action(df):
     return signals, overall_action
 
 def fetch_recent_news(symbol, max_items=5):
-    """Fetch recent news headlines for the symbol using Copilot API (real-time)."""
-    # --- Real Copilot API integration placeholder ---
-    # Replace this with actual API call to Copilot or ChatGPT news endpoint.
-    # Example:
-    # import requests
-    # response = requests.post("https://api.copilot.microsoft.com/news", json={"symbol": symbol, "max_items": max_items})
-    # if response.ok:
-    #     news_data = response.json()
-    #     return "\n\n".join(news_data["paragraphs"])
-    # else:
-    #     return "Unable to fetch real-time news from Copilot API."
-    return "Copilot API integration required for real-time news. Please configure your API credentials and endpoint."
+    """Fetch recent news headlines for the symbol using Yahoo Finance (yfinance). Returns a paragraph summary."""
+    try:
+        ticker = yf.Ticker(symbol)
+        news_items = getattr(ticker, "news", [])
+        if not news_items or not isinstance(news_items, list):
+            return "No recent news found."
+        paragraphs = []
+        for item in news_items[:max_items]:
+            title = item.get("title", "")
+            publisher = item.get("publisher", "")
+            link = item.get("link", "")
+            summary = item.get("summary", "")
+            if title and link:
+                para = f"{title} ({publisher})\n{summary}\nRead more: {link}"
+                paragraphs.append(para)
+        return "\n\n".join(paragraphs) if paragraphs else "No recent news found."
+    except Exception:
+        return "No recent news found."
 
 def summarize_news_movement(symbol):
-    """Return a summary sentence about recent news and price movement using Copilot news."""
+    """Return a summary sentence about recent news and price movement using Yahoo Finance news."""
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="2d", interval="1d")
@@ -394,22 +400,13 @@ def summarize_news_movement(symbol):
         price_change = last_close - prev_close
         price_change_pct = (price_change / prev_close) * 100
         direction = "up" if price_change > 0 else "down" if price_change < 0 else "flat"
-        news = fetch_recent_news(symbol, max_items=3)
-        news_titles = []
-        for item in news:
-            if item.startswith("- [") and "](" in item:
-                start = item.find("- [") + 3
-                end = item.find("](")
-                title = item[start:end]
-                if title:
-                    news_titles.append(title)
-        news_summary = "; ".join(news_titles)
+        news = fetch_recent_news(symbol, max_items=2)
         if direction == "up":
-            return f"Stock is up {price_change_pct:+.2f}% today. Latest news: {news_summary if news_summary else 'No major headlines.'}"
+            return f"Stock is up {price_change_pct:+.2f}% today.\n\n{news}"
         elif direction == "down":
-            return f"Stock is down {price_change_pct:+.2f}% today. Latest news: {news_summary if news_summary else 'No major headlines.'}"
+            return f"Stock is down {price_change_pct:+.2f}% today.\n\n{news}"
         else:
-            return f"Stock is flat today. Latest news: {news_summary if news_summary else 'No major headlines.'}"
+            return f"Stock is flat today.\n\n{news}"
     except Exception:
         return "Unable to summarize recent movement."
 
@@ -669,11 +666,6 @@ def main():
                 'Close': '${:.2f}',
                 'Volume': '{:,}'
             }))
-
-            # --- News Feed section at the bottom as paragraphs ---
-            st.markdown("#### 📰 Latest News Feed (Copilot)")
-            news_paragraphs = fetch_recent_news(display_symbol, max_items=2)
-            st.write(news_paragraphs)
 
             # Auto-refresh
             if auto_refresh:
