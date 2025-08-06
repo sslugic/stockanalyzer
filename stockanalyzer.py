@@ -210,6 +210,72 @@ def create_main_chart(df, symbol):
     return fig
 
 
+def portfolio_tab():
+    st.header("💼 My Portfolio")
+
+    # Initialize portfolio in session state
+    if "portfolio" not in st.session_state:
+        st.session_state.portfolio = []
+
+    # Add stock to portfolio
+    with st.form("add_stock_form"):
+        new_symbol = st.text_input("Add Stock Symbol to Portfolio", value="", key="portfolio_input")
+        add_btn = st.form_submit_button("Add Stock")
+        if add_btn and new_symbol:
+            symbol = new_symbol.strip().upper()
+            if symbol not in st.session_state.portfolio:
+                st.session_state.portfolio.append(symbol)
+                st.success(f"Added {symbol} to portfolio.")
+            else:
+                st.warning(f"{symbol} is already in your portfolio.")
+
+    # Remove stock from portfolio
+    if st.session_state.portfolio:
+        remove_symbol = st.selectbox("Remove Stock", st.session_state.portfolio)
+        if st.button("Remove Selected Stock"):
+            st.session_state.portfolio.remove(remove_symbol)
+            st.success(f"Removed {remove_symbol} from portfolio.")
+
+    # Display portfolio table
+    if st.session_state.portfolio:
+        st.subheader("📋 Portfolio Overview")
+        portfolio_data = []
+        for symbol in st.session_state.portfolio:
+            try:
+                ticker = yf.Ticker(symbol)
+                df = ticker.history(period="1mo", interval="1d")
+                if df.empty:
+                    continue
+                df = calculate_technical_indicators(df)
+                signals = generate_signals(df)
+                latest = df.iloc[-1]
+                info = ticker.info
+                company_name = info.get('longName', symbol)
+                sector = info.get('sector', 'N/A')
+                price = latest['Close']
+                rsi = latest['RSI']
+                signal_summary = ", ".join([f"{s[1]} ({s[0]})" for s in signals]) if signals else "HOLD"
+                portfolio_data.append({
+                    "Symbol": symbol,
+                    "Company": company_name,
+                    "Sector": sector,
+                    "Price": f"${price:.2f}",
+                    "RSI": f"{rsi:.2f}",
+                    "Signals": signal_summary
+                })
+            except Exception as e:
+                portfolio_data.append({
+                    "Symbol": symbol,
+                    "Company": "Error",
+                    "Sector": "-",
+                    "Price": "-",
+                    "RSI": "-",
+                    "Signals": f"Error: {str(e)}"
+                })
+        st.dataframe(pd.DataFrame(portfolio_data))
+    else:
+        st.info("Your portfolio is empty. Add stocks to get started.")
+
 def main():
     st.title("📈 Stock Signals Analysis Dashboard")
     st.sidebar.title("Settings")
