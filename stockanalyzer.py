@@ -367,17 +367,18 @@ def get_overall_action(df):
     return signals, overall_action
 
 def fetch_recent_news(symbol, max_items=5):
-    """Fetch recent news headlines for the symbol using Copilot (simulated). Returns a paragraph summary."""
-    # Simulate Copilot API call for latest news
-    # In real usage, replace this with actual Copilot API integration
-    copilot_news = [
-        f"{symbol} hit a new high today following a strong earnings report that exceeded analyst expectations. The company announced record revenue and profit, which led to a surge in investor confidence.",
-        f"Institutional investors have increased their holdings in {symbol}, signaling strong market support. Several large funds disclosed new positions, contributing to upward price momentum.",
-        f"Analysts have upgraded {symbol} to a 'Buy' rating, citing robust growth prospects and positive market sentiment. The upgrade comes after a series of favorable news releases and financial results."
-    ]
-    # Join the news into a couple of paragraphs
-    summary = "\n\n".join(copilot_news[:max_items])
-    return summary
+    """Fetch recent news headlines for the symbol using Copilot API (real-time)."""
+    # --- Real Copilot API integration placeholder ---
+    # Replace this with actual API call to Copilot or ChatGPT news endpoint.
+    # Example:
+    # import requests
+    # response = requests.post("https://api.copilot.microsoft.com/news", json={"symbol": symbol, "max_items": max_items})
+    # if response.ok:
+    #     news_data = response.json()
+    #     return "\n\n".join(news_data["paragraphs"])
+    # else:
+    #     return "Unable to fetch real-time news from Copilot API."
+    return "Copilot API integration required for real-time news. Please configure your API credentials and endpoint."
 
 def summarize_news_movement(symbol):
     """Return a summary sentence about recent news and price movement using Copilot news."""
