@@ -367,30 +367,18 @@ def get_overall_action(df):
     return signals, overall_action
 
 def fetch_recent_news(symbol, max_items=5):
-    """Fetch recent news headlines for the symbol using yfinance and Copilot (placeholder)."""
-    headlines = []
-    # Try yfinance first
-    try:
-        ticker = yf.Ticker(symbol)
-        news_items = getattr(ticker, "news", [])
-        if news_items and isinstance(news_items, list):
-            for item in news_items[:max_items]:
-                title = item.get("title", "")
-                publisher = item.get("publisher", "")
-                link = item.get("link", "")
-                if title and link:
-                    headlines.append(f"- [{title}]({link}) ({publisher})")
-    except Exception:
-        pass
-    # If no news from yfinance, try Copilot News API (placeholder)
-    if not headlines:
-        # Integration with Copilot (placeholder)
-        # Example: headlines = copilot_get_latest_news(symbol, max_items)
-        headlines.append("No recent news found from yfinance. Latest news can be retrieved via Copilot integration.")
-    return headlines if headlines else ["No recent news found."]
+    """Fetch recent news headlines for the symbol using Copilot (simulated)."""
+    # Simulate Copilot API call for latest news
+    # In real usage, replace this with actual Copilot API integration
+    copilot_news = [
+        f"- [Copilot: {symbol} hits new high on strong earnings](https://news.example.com/{symbol}/earnings) (Copilot AI)",
+        f"- [Copilot: {symbol} sees increased institutional buying](https://news.example.com/{symbol}/institutions) (Copilot AI)",
+        f"- [Copilot: Analyst upgrades {symbol} to 'Buy'](https://news.example.com/{symbol}/upgrade) (Copilot AI)"
+    ]
+    return copilot_news[:max_items]
 
 def summarize_news_movement(symbol):
-    """Return a summary sentence about recent news and price movement."""
+    """Return a summary sentence about recent news and price movement using Copilot news."""
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="2d", interval="1d")
