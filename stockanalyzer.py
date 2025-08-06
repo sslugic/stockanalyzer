@@ -164,6 +164,8 @@ def generate_signals(df, symbol=None):
     qqq_up = qqq_momentum()
     price_now = prices[-1] if prices else None
 
+    macd_is_bullish = (macd_score == 2 and macd_confidence == "Strong Bullish")
+
     # --- RSI ---
     if rsi_val is not None:
         if rsi_val < 30:
@@ -210,37 +212,51 @@ def generate_signals(df, symbol=None):
         signals.append(("QQQ", "SELL", "QQQ flat/down (bearish market)"))
         scores["SELL"] += 1
 
-    # --- Final action scoring ---
-    buy_count = scores["BUY"]
-    sell_count = scores["SELL"]
-    hold_count = scores["HOLD"]
-
-    if buy_count >= 3 and sell_count == 0:
-        signals.append(("Summary", "BUY", "Strong Buy Signal"))
-    elif sell_count >= 2 and buy_count == 0:
-        signals.append(("Summary", "SELL", "Strong Sell Signal"))
-    elif buy_count > sell_count and buy_count >= 2:
-        signals.append(("Summary", "BUY", "Buy Signal"))
-    elif sell_count > buy_count and sell_count >= 2:
-        signals.append(("Summary", "SELL", "Sell Signal"))
-    else:
-        signals.append(("Summary", "HOLD", "Hold Signal"))
+    # --- Stochastic Oscillator ---
+    stoch_k = df['Stoch_k'].iloc[-1] if 'Stoch_k' in df.columns else None
+    stoch_d = df['Stoch_d'].iloc[-1] if 'Stoch_d' in df.columns else None
+    if stoch_k is not None and stoch_d is not None:
+        if stoch_k < 20 and stoch_d < 20:
+            signals.append(("Stochastic", "BUY", f"Stochastic oversold (K={stoch_k:.2f}, D={stoch_d:.2f})"))
+            scores["BUY"] += 1
+        elif stoch_k > 80 and stoch_d > 80:
+            signals.append(("Stochastic", "SELL", f"Stochastic overbought (K={stoch_k:.2f}, D={stoch_d:.2f})"))
+            scores["SELL"] += 1
+        else:
+            signals.append(("Stochastic", "HOLD", f"Stochastic neutral (K={stoch_k:.2f}, D={stoch_d:.2f})"))
+            scores["HOLD"] += 1
 
     return signals, scores
 
-def score_signals(scores):
-    """Aggregate scores and return overall action."""
+def score_signals(scores, macd_is_bullish):
     buy_count = scores.get("BUY", 0)
     sell_count = scores.get("SELL", 0)
     hold_count = scores.get("HOLD", 0)
-    if buy_count >= 3 and sell_count == 0:
-        return "STRONG BUY"
-    elif buy_count > sell_count and buy_count >= 2:
-        return "BUY"
-    elif sell_count > buy_count and sell_count >= 2:
-        return "SELL"
+    total_signals = buy_count + sell_count + hold_count
+
+    # Only allow BUY if MACD is bullish
+    if macd_is_bullish:
+        if buy_count == total_signals and total_signals > 0:
+            return "STRONG BUY"
+        elif buy_count >= 4:
+            return "BUY"
+        elif sell_count >= 4:
+            return "SELL"
+        elif hold_count >= 2 and hold_count >= buy_count and hold_count >= sell_count:
+            return "HOLD"
+        elif buy_count <= 1:
+            return "SELL"
+        else:
+            return "HOLD"
     else:
-        return "HOLD"
+        if sell_count >= 4:
+            return "SELL"
+        elif hold_count >= 2 and hold_count >= buy_count and hold_count >= sell_count:
+            return "HOLD"
+        elif buy_count <= 1:
+            return "SELL"
+        else:
+            return "HOLD"
 
 
 def create_main_chart(df, symbol):
@@ -335,6 +351,21 @@ def create_main_chart(df, symbol):
     return fig
 
 
+def get_overall_action(df):
+    """Centralized logic for signals and overall action, used by both dashboard and portfolio."""
+    signals, scores = generate_signals(df)
+    # Find MACD signal type from signals list (not by recalculating)
+    macd_signal_type = None
+    for s in signals:
+        if s[0] == "MACD":
+            macd_signal_type = s[1]
+            break
+    # If MACD signal is "BUY", treat as bullish for scoring
+    macd_is_bullish = macd_signal_type == "BUY"
+    # Always pass the same scores and macd_is_bullish to score_signals
+    overall_action = score_signals(scores, macd_is_bullish)
+    return signals, overall_action
+
 def portfolio_tab():
     st.header("💼 My Portfolio")
 
@@ -364,48 +395,71 @@ def portfolio_tab():
     # Display portfolio table
     if st.session_state.portfolio:
         st.subheader("📋 Portfolio Overview")
-        portfolio_data = []
-        signal_types = []
+        portfolio_rows = []
         for symbol in st.session_state.portfolio:
             try:
                 ticker = yf.Ticker(symbol)
                 df = ticker.history(period="1mo", interval="1d")
-                if df.empty:
+                if df is None or df.empty or 'Close' not in df.columns or len(df['Close']) == 0:
+                    portfolio_rows.append({
+                        "Symbol": symbol,
+                        "Company": "No Data",
+                        "Sector": "-",
+                        "Price": "-",
+                        "RSI": "-",
+                        "Signals": "No data found",
+                        "Action": "HOLD"
+                    })
                     continue
                 df = calculate_technical_indicators(df)
-                signals, scores = generate_signals(df, symbol)
-                overall_action = score_signals(scores)
-                latest = df.iloc[-1]
-                info = ticker.info
+                signals, overall_action = get_overall_action(df)
+                info = {}
+                try:
+                    info = ticker.info
+                except Exception:
+                    info = {}
                 company_name = info.get('longName', symbol)
                 sector = info.get('sector', 'N/A')
-                price = latest['Close']
-                rsi = latest['RSI']
-                signal_summary = ", ".join([f"{s[1]} ({s[0]})" for s in signals]) if signals else "HOLD"
-                portfolio_data.append({
+                price = df['Close'].iloc[-1] if not df['Close'].empty else "-"
+                rsi = df['RSI'].iloc[-1] if 'RSI' in df.columns and not df['RSI'].empty else "-"
+                # Use the same Trading Signals data as Dashboard (exclude Summary)
+                trading_signals = []
+                for indicator, signal, description in signals:
+                    if indicator == "Summary":
+                        continue
+                    # Format similar to dashboard
+                    if signal == "BUY":
+                        trading_signals.append(f"🟢 {indicator}: {signal} - {description}")
+                    elif signal == "SELL":
+                        trading_signals.append(f"🔴 {indicator}: {signal} - {description}")
+                    else:
+                        trading_signals.append(f"🟡 {indicator}: {signal} - {description}")
+                signals_display = "\n".join(trading_signals) if trading_signals else "HOLD"
+                portfolio_rows.append({
                     "Symbol": symbol,
                     "Company": company_name,
                     "Sector": sector,
-                    "Price": f"${price:.2f}",
-                    "RSI": f"{rsi:.2f}",
-                    "Signals": signal_summary,
+                    "Price": f"${price:.2f}" if isinstance(price, (float, int, np.float64, np.int64)) else price,
+                    "RSI": f"{rsi:.2f}" if isinstance(rsi, (float, int, np.float64, np.int64)) else rsi,
+                    "Trading Signals": signals_display,
                     "Action": overall_action
                 })
-                signal_types.append(overall_action)
             except Exception as e:
-                portfolio_data.append({
+                portfolio_rows.append({
                     "Symbol": symbol,
                     "Company": "Error",
                     "Sector": "-",
                     "Price": "-",
                     "RSI": "-",
-                    "Signals": f"Error: {str(e)}",
+                    "Trading Signals": f"Error: {str(e)}",
                     "Action": "HOLD"
                 })
-                signal_types.append("HOLD")
 
-        df_portfolio = pd.DataFrame(portfolio_data)
-        st.dataframe(df_portfolio)
+        if portfolio_rows:
+            df_portfolio = pd.DataFrame(portfolio_rows)
+            st.dataframe(df_portfolio)
+        else:
+            st.info("No valid data for your portfolio stocks.")
     else:
         st.info("Your portfolio is empty. Add stocks to get started.")
 
@@ -423,11 +477,10 @@ def main():
         interval_options = ["1d", "5d", "1wk", "1mo"]
         interval = st.sidebar.selectbox("Data Interval", interval_options, index=0)
 
-        # Auto-refresh option
-        auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)")
-
+        # Auto-refresh option (default checked, 60s)
+        auto_refresh = st.sidebar.checkbox("Auto-refresh (60s)", value=True)
         if auto_refresh:
-            st.sidebar.info("Dashboard will refresh every 30 seconds")
+            st.sidebar.info("Dashboard will refresh every 60 seconds")
 
         if st.sidebar.button("Analyze Stock") or auto_refresh:
             try:
@@ -455,8 +508,7 @@ def main():
                 df = calculate_technical_indicators(df)
 
                 # Generate signals
-                signals, scores = generate_signals(df, symbol)
-                overall_action = score_signals(scores)
+                signals, overall_action = get_overall_action(df)
 
                 # Display company info
                 st.subheader(f"{company_name} ({symbol})")
@@ -471,28 +523,26 @@ def main():
                 with col1:
                     st.metric("Current Price", f"${latest_price:.2f}",
                               f"{price_change:+.2f} ({price_change_pct:+.2f}%)")
-
                 with col2:
                     st.metric("RSI", f"{df['RSI'].iloc[-1]:.2f}")
-
                 with col3:
                     st.metric("Sector", sector)
+                with col4:
+                    st.metric("Action", overall_action)
 
-                # Display signals
+                # Display signals (sync with portfolio)
                 st.subheader("🚦 Trading Signals")
-
                 if signals:
                     for indicator, signal, description in signals:
+                        if indicator == "Summary":
+                            continue  # Remove Summary from Dashboard
+                        # Use smaller font for individual signals
                         if signal == "BUY":
-                            st.markdown(f"🟢 **{indicator}**: <span class='signal-buy'>{signal}</span> - {description}",
-                                        unsafe_allow_html=True)
+                            st.markdown(f"<span style='font-size:0.95em;'>🟢 <b>{indicator}</b>: <span class='signal-buy'>{signal}</span> - {description}</span>", unsafe_allow_html=True)
                         elif signal == "SELL":
-                            st.markdown(f"🔴 **{indicator}**: <span class='signal-sell'>{signal}</span> - {description}",
-                                        unsafe_allow_html=True)
+                            st.markdown(f"<span style='font-size:0.95em;'>🔴 <b>{indicator}</b>: <span class='signal-sell'>{signal}</span> - {description}</span>", unsafe_allow_html=True)
                         else:
-                            st.markdown(f"🟡 **{indicator}**: <span class='signal-hold'>{signal}</span> - {description}",
-                                        unsafe_allow_html=True)
-                    st.markdown(f"**Overall Action:** `{overall_action}`")
+                            st.markdown(f"<span style='font-size:0.95em;'>🟡 <b>{indicator}</b>: <span class='signal-hold'>{signal}</span> - {description}</span>", unsafe_allow_html=True)
                 else:
                     st.info("No strong signals detected. Consider holding current position.")
 
@@ -543,7 +593,6 @@ def main():
             except Exception as e:
                 st.error(f"Error fetching data: {str(e)}")
                 st.info("Please check the stock symbol and try again.")
-
     with tab2:
         portfolio_tab()
 
