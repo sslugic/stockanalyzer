@@ -477,122 +477,145 @@ def main():
         interval_options = ["1d", "5d", "1wk", "1mo"]
         interval = st.sidebar.selectbox("Data Interval", interval_options, index=0)
 
-        # Auto-refresh option (default checked, 60s)
+        # Auto-refresh every 60 seconds (using streamlit_autorefresh)
         auto_refresh = st.sidebar.checkbox("Auto-refresh (60s)", value=True)
         if auto_refresh:
             st.sidebar.info("Dashboard will refresh every 60 seconds")
+            # Use streamlit_autorefresh for proper interval
+            from streamlit_autorefresh import st_autorefresh
+            st_autorefresh(interval=60000, key="dashboard_autorefresh")
 
-        if st.sidebar.button("Analyze Stock") or auto_refresh:
-            try:
-                # Fetch data
-                with st.spinner(f"Fetching data for {symbol}..."):
-                    ticker = yf.Ticker(symbol)
-                    df = ticker.history(period=period, interval=interval)
+        analyze_clicked = st.sidebar.button("Analyze Stock")
 
-                    if df.empty:
-                        st.error(f"No data found for symbol {symbol}")
-                        return
+        # Use a session state flag to keep context after rerun
+        if "last_symbol" not in st.session_state:
+            st.session_state["last_symbol"] = symbol
+        if analyze_clicked:
+            st.session_state["last_symbol"] = symbol
 
-                    # Get company info
-                    try:
-                        info = ticker.info
-                        company_name = info.get('longName', symbol)
-                        sector = info.get('sector', 'N/A')
-                        market_cap = info.get('marketCap', 'N/A')
-                    except:
-                        company_name = symbol
-                        sector = 'N/A'
-                        market_cap = 'N/A'
+        # Use last_symbol for display and add-to-portfolio
+        display_symbol = st.session_state["last_symbol"]
 
-                # Calculate indicators
-                df = calculate_technical_indicators(df)
+        try:
+            # Fetch data
+            with st.spinner(f"Fetching data for {display_symbol}..."):
+                ticker = yf.Ticker(display_symbol)
+                df = ticker.history(period=period, interval=interval)
 
-                # Generate signals
-                signals, overall_action = get_overall_action(df)
+                if df.empty:
+                    st.error(f"No data found for symbol {display_symbol}")
+                    return
 
-                # Display company info
-                st.subheader(f"{company_name} ({symbol})")
+                # Get company info
+                try:
+                    info = ticker.info
+                    company_name = info.get('longName', display_symbol)
+                    sector = info.get('sector', 'N/A')
+                    market_cap = info.get('marketCap', 'N/A')
+                except:
+                    company_name = display_symbol
+                    sector = 'N/A'
+                    market_cap = 'N/A'
 
-                col1, col2, col3, col4 = st.columns(4)
-
-                latest_price = df['Close'].iloc[-1]
-                prev_close = df['Close'].iloc[-2]
-                price_change = latest_price - prev_close
-                price_change_pct = (price_change / prev_close) * 100
-
-                with col1:
-                    st.metric("Current Price", f"${latest_price:.2f}",
-                              f"{price_change:+.2f} ({price_change_pct:+.2f}%)")
-                with col2:
-                    st.metric("RSI", f"{df['RSI'].iloc[-1]:.2f}")
-                with col3:
-                    st.metric("Sector", sector)
-                with col4:
-                    st.metric("Action", overall_action)
-
-                # Display signals (sync with portfolio)
-                st.subheader("🚦 Trading Signals")
-                if signals:
-                    for indicator, signal, description in signals:
-                        if indicator == "Summary":
-                            continue  # Remove Summary from Dashboard
-                        # Use smaller font for individual signals
-                        if signal == "BUY":
-                            st.markdown(f"<span style='font-size:0.95em;'>🟢 <b>{indicator}</b>: <span class='signal-buy'>{signal}</span> - {description}</span>", unsafe_allow_html=True)
-                        elif signal == "SELL":
-                            st.markdown(f"<span style='font-size:0.95em;'>🔴 <b>{indicator}</b>: <span class='signal-sell'>{signal}</span> - {description}</span>", unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"<span style='font-size:0.95em;'>🟡 <b>{indicator}</b>: <span class='signal-hold'>{signal}</span> - {description}</span>", unsafe_allow_html=True)
+            # Calculate indicators
+            df = calculate_technical_indicators(df)
+            # Generate signals
+            signals, overall_action = get_overall_action(df)
+            # Display company info
+            st.subheader(f"{company_name} ({display_symbol})")
+            # --- Add to Portfolio button between subheader and metrics ---
+            add_clicked = st.button(f"Add {display_symbol} to Portfolio", key="add_portfolio_btn")
+            if add_clicked:
+                if "portfolio" not in st.session_state:
+                    st.session_state.portfolio = []
+                if display_symbol not in st.session_state.portfolio:
+                    st.session_state.portfolio.append(display_symbol)
+                    st.success(f"Added {display_symbol} to portfolio.")
+                    # Force rerun to reload context and update portfolio
+                    st.experimental_rerun()
                 else:
-                    st.info("No strong signals detected. Consider holding current position.")
+                    st.warning(f"{display_symbol} is already in your portfolio.")
+            # Metrics
+            col1, col2, col3, col4 = st.columns(4)
 
-                # Display main chart
-                st.subheader("📊 Technical Analysis Chart")
-                fig = create_main_chart(df, symbol)
-                st.plotly_chart(fig, use_container_width=True)
+            latest_price = df['Close'].iloc[-1]
+            prev_close = df['Close'].iloc[-2]
+            price_change = latest_price - prev_close
+            price_change_pct = (price_change / prev_close) * 100
 
-                # Technical indicators summary
-                st.subheader("📋 Technical Indicators Summary")
+            with col1:
+                st.metric("Current Price", f"${latest_price:.2f}",
+                          f"{price_change:+.2f} ({price_change_pct:+.2f}%)")
+            with col2:
+                st.metric("RSI", f"{df['RSI'].iloc[-1]:.2f}")
+            with col3:
+                st.metric("Sector", sector)
+            with col4:
+                st.metric("Action", overall_action)
 
-                col1, col2 = st.columns(2)
+            # Display signals (sync with portfolio)
+            st.subheader("🚦 Trading Signals")
+            if signals:
+                for indicator, signal, description in signals:
+                    if indicator == "Summary":
+                        continue  # Remove Summary from Dashboard
+                    # Use smaller font for individual signals
+                    if signal == "BUY":
+                        st.markdown(f"<span style='font-size:0.95em;'>🟢 <b>{indicator}</b>: <span class='signal-buy'>{signal}</span> - {description}</span>", unsafe_allow_html=True)
+                    elif signal == "SELL":
+                        st.markdown(f"<span style='font-size:0.95em;'>🔴 <b>{indicator}</b>: <span class='signal-sell'>{signal}</span> - {description}</span>", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"<span style='font-size:0.95em;'>🟡 <b>{indicator}</b>: <span class='signal-hold'>{signal}</span> - {description}</span>", unsafe_allow_html=True)
+            else:
+                st.info("No strong signals detected. Consider holding current position.")
 
-                with col1:
-                    st.write("**Trend Indicators:**")
-                    st.write(f"• SMA 20: ${df['SMA_20'].iloc[-1]:.2f}")
-                    st.write(f"• SMA 50: ${df['SMA_50'].iloc[-1]:.2f}")
-                    st.write(f"• EMA 12: ${df['EMA_12'].iloc[-1]:.2f}")
-                    st.write(f"• EMA 26: ${df['EMA_26'].iloc[-1]:.2f}")
+            # Display main chart
+            st.subheader("📊 Technical Analysis Chart")
+            fig = create_main_chart(df, symbol)
+            st.plotly_chart(fig, use_container_width=True)
 
-                    st.write("**Volatility Indicators:**")
-                    st.write(f"• BB Upper: ${df['BB_upper'].iloc[-1]:.2f}")
-                    st.write(f"• BB Lower: ${df['BB_lower'].iloc[-1]:.2f}")
+            # Technical indicators summary
+            st.subheader("📋 Technical Indicators Summary")
 
-                with col2:
-                    st.write("**Momentum Indicators:**")
-                    st.write(f"• RSI: {df['RSI'].iloc[-1]:.2f}")
-                    st.write(f"• MACD: {df['MACD'].iloc[-1]:.4f}")
-                    st.write(f"• MACD Signal: {df['MACD_signal'].iloc[-1]:.4f}")
-                    st.write(f"• Stochastic %K: {df['Stoch_k'].iloc[-1]:.2f}")
-                    st.write(f"• Stochastic %D: {df['Stoch_d'].iloc[-1]:.2f}")
+            col1, col2 = st.columns(2)
 
-                # Recent data table
-                st.subheader("📈 Recent Price Data")
-                recent_data = df[['Open', 'High', 'Low', 'Close', 'Volume']].tail(10)
-                st.dataframe(recent_data.style.format({
-                    'Open': '${:.2f}',
-                    'High': '${:.2f}',
-                    'Low': '${:.2f}',
-                    'Close': '${:.2f}',
-                    'Volume': '{:,}'
-                }))
+            with col1:
+                st.write("**Trend Indicators:**")
+                st.write(f"• SMA 20: ${df['SMA_20'].iloc[-1]:.2f}")
+                st.write(f"• SMA 50: ${df['SMA_50'].iloc[-1]:.2f}")
+                st.write(f"• EMA 12: ${df['EMA_12'].iloc[-1]:.2f}")
+                st.write(f"• EMA 26: ${df['EMA_26'].iloc[-1]:.2f}")
 
-                # Auto-refresh
-                if auto_refresh:
-                    st.rerun()
+                st.write("**Volatility Indicators:**")
+                st.write(f"• BB Upper: ${df['BB_upper'].iloc[-1]:.2f}")
+                st.write(f"• BB Lower: ${df['BB_lower'].iloc[-1]:.2f}")
 
-            except Exception as e:
-                st.error(f"Error fetching data: {str(e)}")
-                st.info("Please check the stock symbol and try again.")
+            with col2:
+                st.write("**Momentum Indicators:**")
+                st.write(f"• RSI: {df['RSI'].iloc[-1]:.2f}")
+                st.write(f"• MACD: {df['MACD'].iloc[-1]:.4f}")
+                st.write(f"• MACD Signal: {df['MACD_signal'].iloc[-1]:.4f}")
+                st.write(f"• Stochastic %K: {df['Stoch_k'].iloc[-1]:.2f}")
+                st.write(f"• Stochastic %D: {df['Stoch_d'].iloc[-1]:.2f}")
+
+            # Recent data table
+            st.subheader("📈 Recent Price Data")
+            recent_data = df[['Open', 'High', 'Low', 'Close', 'Volume']].tail(10)
+            st.dataframe(recent_data.style.format({
+                'Open': '${:.2f}',
+                'High': '${:.2f}',
+                'Low': '${:.2f}',
+                'Close': '${:.2f}',
+                'Volume': '{:,}'
+            }))
+
+            # Auto-refresh
+            if auto_refresh:
+                st.rerun()
+
+        except Exception as e:
+            st.error(f"Error fetching data: {str(e)}")
+            st.info("Please check the stock symbol and try again.")
     with tab2:
         portfolio_tab()
 
