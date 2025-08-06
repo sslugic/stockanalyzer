@@ -366,6 +366,44 @@ def get_overall_action(df):
     overall_action = score_signals(scores, macd_is_bullish)
     return signals, overall_action
 
+def fetch_recent_news(symbol, max_items=5):
+    """Fetch recent news headlines for the symbol using yfinance."""
+    try:
+        ticker = yf.Ticker(symbol)
+        news_items = ticker.news if hasattr(ticker, "news") else []
+        if not news_items:
+            return ["No recent news found."]
+        headlines = []
+        for item in news_items[:max_items]:
+            title = item.get("title", "")
+            publisher = item.get("publisher", "")
+            link = item.get("link", "")
+            headlines.append(f"- [{title}]({link}) ({publisher})")
+        return headlines
+    except Exception as e:
+        return [f"Error fetching news: {str(e)}"]
+
+def summarize_news_movement(symbol):
+    """Return a summary sentence about recent news and price movement."""
+    try:
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period="5d", interval="1d")
+        if hist.empty or len(hist) < 2:
+            return "No recent price data available."
+        price_change = hist['Close'].iloc[-1] - hist['Close'].iloc[-2]
+        price_change_pct = (price_change / hist['Close'].iloc[-2]) * 100
+        direction = "up" if price_change > 0 else "down" if price_change < 0 else "flat"
+        news = fetch_recent_news(symbol, max_items=3)
+        news_summary = " ".join([item.split('](')[0][2:] for item in news if item.startswith("- [")])
+        if direction == "up":
+            return f"Stock moved up {price_change_pct:+.2f}% yesterday. Recent news: {news_summary or 'No major headlines.'}"
+        elif direction == "down":
+            return f"Stock moved down {price_change_pct:+.2f}% yesterday. Recent news: {news_summary or 'No major headlines.'}"
+        else:
+            return f"Stock was flat yesterday. Recent news: {news_summary or 'No major headlines.'}"
+    except Exception:
+        return "Unable to summarize recent movement."
+
 def portfolio_tab():
     st.header("💼 My Portfolio")
 
@@ -406,6 +444,7 @@ def portfolio_tab():
                         "Company": "No Data",
                         "Sector": "-",
                         "Price": "-",
+                        "Change %": "-",
                         "RSI": "-",
                         "Signals": "No data found",
                         "Action": "HOLD"
@@ -422,12 +461,18 @@ def portfolio_tab():
                 sector = info.get('sector', 'N/A')
                 price = df['Close'].iloc[-1] if not df['Close'].empty else "-"
                 rsi = df['RSI'].iloc[-1] if 'RSI' in df.columns and not df['RSI'].empty else "-"
+                # % change calculation
+                if len(df['Close']) > 1:
+                    prev_close = df['Close'].iloc[-2]
+                    price_change_pct = ((price - prev_close) / prev_close) * 100 if prev_close else 0
+                    price_change_pct_str = f"{price_change_pct:+.2f}%"
+                else:
+                    price_change_pct_str = "-"
                 # Use the same Trading Signals data as Dashboard (exclude Summary)
                 trading_signals = []
                 for indicator, signal, description in signals:
                     if indicator == "Summary":
                         continue
-                    # Format similar to dashboard
                     if signal == "BUY":
                         trading_signals.append(f"🟢 {indicator}: {signal} - {description}")
                     elif signal == "SELL":
@@ -440,6 +485,7 @@ def portfolio_tab():
                     "Company": company_name,
                     "Sector": sector,
                     "Price": f"${price:.2f}" if isinstance(price, (float, int, np.float64, np.int64)) else price,
+                    "Change %": price_change_pct_str,
                     "RSI": f"{rsi:.2f}" if isinstance(rsi, (float, int, np.float64, np.int64)) else rsi,
                     "Trading Signals": signals_display,
                     "Action": overall_action
@@ -450,6 +496,7 @@ def portfolio_tab():
                     "Company": "Error",
                     "Sector": "-",
                     "Price": "-",
+                    "Change %": "-",
                     "RSI": "-",
                     "Trading Signals": f"Error: {str(e)}",
                     "Action": "HOLD"
@@ -529,10 +576,16 @@ def main():
                 if display_symbol not in st.session_state.portfolio:
                     st.session_state.portfolio.append(display_symbol)
                     st.success(f"Added {display_symbol} to portfolio.")
-                    # Force rerun to reload context and update portfolio
                     st.rerun()
                 else:
                     st.warning(f"{display_symbol} is already in your portfolio.")
+            # --- News summary section ---
+            st.markdown("#### 📰 News & Movement Summary")
+            news_summary = summarize_news_movement(display_symbol)
+            st.info(news_summary)
+            news_headlines = fetch_recent_news(display_symbol, max_items=5)
+            for headline in news_headlines:
+                st.markdown(headline)
             # Metrics
             col1, col2, col3, col4 = st.columns(4)
 
