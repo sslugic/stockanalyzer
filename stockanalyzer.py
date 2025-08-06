@@ -370,16 +370,18 @@ def fetch_recent_news(symbol, max_items=5):
     """Fetch recent news headlines for the symbol using yfinance."""
     try:
         ticker = yf.Ticker(symbol)
-        news_items = ticker.news if hasattr(ticker, "news") else []
-        if not news_items:
+        news_items = getattr(ticker, "news", [])
+        if not news_items or not isinstance(news_items, list):
             return ["No recent news found."]
         headlines = []
         for item in news_items[:max_items]:
             title = item.get("title", "")
             publisher = item.get("publisher", "")
             link = item.get("link", "")
-            headlines.append(f"- [{title}]({link}) ({publisher})")
-        return headlines
+            # Only add if title and link are present
+            if title and link:
+                headlines.append(f"- [{title}]({link}) ({publisher})")
+        return headlines if headlines else ["No recent news found."]
     except Exception as e:
         return [f"Error fetching news: {str(e)}"]
 
@@ -388,19 +390,32 @@ def summarize_news_movement(symbol):
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="5d", interval="1d")
-        if hist.empty or len(hist) < 2:
+        if hist.empty or len(hist) < 2 or 'Close' not in hist.columns:
             return "No recent price data available."
-        price_change = hist['Close'].iloc[-1] - hist['Close'].iloc[-2]
-        price_change_pct = (price_change / hist['Close'].iloc[-2]) * 100
+        prev_close = hist['Close'].iloc[-2]
+        last_close = hist['Close'].iloc[-1]
+        if prev_close == 0:
+            return "No valid price change data."
+        price_change = last_close - prev_close
+        price_change_pct = (price_change / prev_close) * 100
         direction = "up" if price_change > 0 else "down" if price_change < 0 else "flat"
         news = fetch_recent_news(symbol, max_items=3)
-        news_summary = " ".join([item.split('](')[0][2:] for item in news if item.startswith("- [")])
+        # Only use titles for summary, skip empty/error lines
+        news_titles = []
+        for item in news:
+            if item.startswith("- [") and "](" in item:
+                start = item.find("- [") + 3
+                end = item.find("](")
+                title = item[start:end]
+                if title:
+                    news_titles.append(title)
+        news_summary = "; ".join(news_titles)
         if direction == "up":
-            return f"Stock moved up {price_change_pct:+.2f}% yesterday. Recent news: {news_summary or 'No major headlines.'}"
+            return f"Stock moved up {price_change_pct:+.2f}% yesterday. Recent news: {news_summary if news_summary else 'No major headlines.'}"
         elif direction == "down":
-            return f"Stock moved down {price_change_pct:+.2f}% yesterday. Recent news: {news_summary or 'No major headlines.'}"
+            return f"Stock moved down {price_change_pct:+.2f}% yesterday. Recent news: {news_summary if news_summary else 'No major headlines.'}"
         else:
-            return f"Stock was flat yesterday. Recent news: {news_summary or 'No major headlines.'}"
+            return f"Stock was flat yesterday. Recent news: {news_summary if news_summary else 'No major headlines.'}"
     except Exception:
         return "Unable to summarize recent movement."
 
@@ -582,10 +597,14 @@ def main():
             # --- News summary section ---
             st.markdown("#### 📰 News & Movement Summary")
             news_summary = summarize_news_movement(display_symbol)
-            st.info(news_summary)
+            if news_summary and isinstance(news_summary, str):
+                st.info(news_summary)
+            else:
+                st.info("No summary available.")
             news_headlines = fetch_recent_news(display_symbol, max_items=5)
             for headline in news_headlines:
-                st.markdown(headline)
+                if headline and isinstance(headline, str):
+                    st.markdown(headline)
             # Metrics
             col1, col2, col3, col4 = st.columns(4)
 
