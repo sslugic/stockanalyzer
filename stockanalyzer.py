@@ -592,10 +592,7 @@ def main():
                 st.info(news_summary)
             else:
                 st.info("No summary available.")
-            news_headlines = fetch_recent_news(display_symbol, max_items=5)
-            for headline in news_headlines:
-                if headline and isinstance(headline, str):
-                    st.markdown(headline)
+
             # Metrics
             col1, col2, col3, col4 = st.columns(4)
 
@@ -669,6 +666,13 @@ def main():
                 'Close': '${:.2f}',
                 'Volume': '{:,}'
             }))
+
+            # --- News Feed section at the bottom ---
+            st.markdown("#### 📰 Latest News Feed (Copilot)")
+            news_headlines = fetch_recent_news(display_symbol, max_items=5)
+            for headline in news_headlines:
+                if headline and isinstance(headline, str):
+                    st.markdown(headline)
 
             # Auto-refresh
             if auto_refresh:
