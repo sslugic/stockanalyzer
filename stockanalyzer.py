@@ -71,43 +71,90 @@ def calculate_technical_indicators(df):
     return df
 
 
-def generate_signals(df):
-    """Generate buy/sell signals based on technical indicators"""
+def generate_signals(df, symbol=None):
+    """Generate buy/sell signals based on MACD, RSI, QQQ, Price, VIX, Volume. Returns list of signals and score dict."""
     signals = []
+    scores = {"BUY": 0, "SELL": 0, "HOLD": 0}
     latest = df.iloc[-1]
     prev = df.iloc[-2]
 
-    # Moving Average Crossover Signal
-    if latest['SMA_20'] > latest['SMA_50'] and prev['SMA_20'] <= prev['SMA_50']:
-        signals.append(("MA Crossover", "BUY", "20-day SMA crossed above 50-day SMA"))
-    elif latest['SMA_20'] < latest['SMA_50'] and prev['SMA_20'] >= prev['SMA_50']:
-        signals.append(("MA Crossover", "SELL", "20-day SMA crossed below 50-day SMA"))
-
-    # RSI Signals
-    if latest['RSI'] < 30:
-        signals.append(("RSI", "BUY", f"RSI oversold at {latest['RSI']:.2f}"))
-    elif latest['RSI'] > 70:
-        signals.append(("RSI", "SELL", f"RSI overbought at {latest['RSI']:.2f}"))
+    # Fetch QQQ (market trend) and VIX (volatility index)
+    try:
+        qqq = yf.Ticker("QQQ").history(period="1mo", interval="1d")
+        vix = yf.Ticker("^VIX").history(period="1mo", interval="1d")
+        qqq_trend = qqq['Close'].iloc[-1] - qqq['Close'].iloc[-5] if len(qqq) > 5 else 0
+        vix_level = vix['Close'].iloc[-1] if not vix.empty else None
+    except Exception:
+        qqq_trend = 0
+        vix_level = None
 
     # MACD Signal
     if latest['MACD'] > latest['MACD_signal'] and prev['MACD'] <= prev['MACD_signal']:
         signals.append(("MACD", "BUY", "MACD crossed above signal line"))
+        scores["BUY"] += 1
     elif latest['MACD'] < latest['MACD_signal'] and prev['MACD'] >= prev['MACD_signal']:
         signals.append(("MACD", "SELL", "MACD crossed below signal line"))
+        scores["SELL"] += 1
 
-    # Bollinger Bands
-    if latest['Close'] < latest['BB_lower']:
-        signals.append(("Bollinger Bands", "BUY", "Price below lower Bollinger Band"))
-    elif latest['Close'] > latest['BB_upper']:
-        signals.append(("Bollinger Bands", "SELL", "Price above upper Bollinger Band"))
+    # RSI Signal
+    if latest['RSI'] < 30:
+        signals.append(("RSI", "BUY", f"RSI oversold at {latest['RSI']:.2f}"))
+        scores["BUY"] += 1
+    elif latest['RSI'] > 70:
+        signals.append(("RSI", "SELL", f"RSI overbought at {latest['RSI']:.2f}"))
+        scores["SELL"] += 1
 
-    # Stochastic
-    if latest['Stoch_k'] < 20 and latest['Stoch_d'] < 20:
-        signals.append(("Stochastic", "BUY", "Stochastic in oversold territory"))
-    elif latest['Stoch_k'] > 80 and latest['Stoch_d'] > 80:
-        signals.append(("Stochastic", "SELL", "Stochastic in overbought territory"))
+    # Price action
+    if latest['Close'] > latest['SMA_20']:
+        signals.append(("Price", "BUY", "Price above 20-day SMA"))
+        scores["BUY"] += 1
+    elif latest['Close'] < latest['SMA_20']:
+        signals.append(("Price", "SELL", "Price below 20-day SMA"))
+        scores["SELL"] += 1
 
-    return signals
+    # Volume spike
+    if latest['Volume'] > 1.5 * latest['Volume_SMA']:
+        signals.append(("Volume", "BUY", "Unusual volume spike"))
+        scores["BUY"] += 1
+    elif latest['Volume'] < 0.5 * latest['Volume_SMA']:
+        signals.append(("Volume", "SELL", "Unusually low volume"))
+        scores["SELL"] += 1
+
+    # QQQ market context
+    if qqq_trend > 0:
+        signals.append(("QQQ", "BUY", "QQQ trending up (bullish market)"))
+        scores["BUY"] += 1
+    elif qqq_trend < 0:
+        signals.append(("QQQ", "SELL", "QQQ trending down (bearish market)"))
+        scores["SELL"] += 1
+
+    # VIX volatility context
+    if vix_level is not None:
+        if vix_level > 20:
+            signals.append(("VIX", "SELL", f"High volatility (VIX={vix_level:.2f})"))
+            scores["SELL"] += 1
+        elif vix_level < 15:
+            signals.append(("VIX", "BUY", f"Low volatility (VIX={vix_level:.2f})"))
+            scores["BUY"] += 1
+
+    # If no BUY/SELL, count as HOLD
+    if scores["BUY"] == 0 and scores["SELL"] == 0:
+        signals.append(("Summary", "HOLD", "No strong signals"))
+        scores["HOLD"] += 1
+
+    return signals, scores
+
+def score_signals(scores):
+    """Aggregate scores and return overall action."""
+    buy_count = scores.get("BUY", 0)
+    if buy_count >= 5:
+        return "STRONG BUY"
+    elif buy_count == 4:
+        return "BUY"
+    elif 2 <= buy_count <= 3:
+        return "HOLD"
+    else:
+        return "SELL"
 
 
 def create_main_chart(df, symbol):
@@ -248,30 +295,25 @@ def portfolio_tab():
                 if df.empty:
                     continue
                 df = calculate_technical_indicators(df)
-                signals = generate_signals(df)
+                signals, scores = generate_signals(df, symbol)
+                overall_action = score_signals(scores)
                 latest = df.iloc[-1]
                 info = ticker.info
                 company_name = info.get('longName', symbol)
                 sector = info.get('sector', 'N/A')
                 price = latest['Close']
                 rsi = latest['RSI']
-                # Determine main signal type for coloring
-                if signals:
-                    # Use first signal type for coloring
-                    main_signal = signals[0][1]
-                    signal_summary = ", ".join([f"{s[1]} ({s[0]})" for s in signals])
-                else:
-                    main_signal = "HOLD"
-                    signal_summary = "HOLD"
+                signal_summary = ", ".join([f"{s[1]} ({s[0]})" for s in signals]) if signals else "HOLD"
                 portfolio_data.append({
                     "Symbol": symbol,
                     "Company": company_name,
                     "Sector": sector,
                     "Price": f"${price:.2f}",
                     "RSI": f"{rsi:.2f}",
-                    "Signals": signal_summary
+                    "Signals": signal_summary,
+                    "Action": overall_action
                 })
-                signal_types.append(main_signal)
+                signal_types.append(overall_action)
             except Exception as e:
                 portfolio_data.append({
                     "Symbol": symbol,
@@ -279,27 +321,13 @@ def portfolio_tab():
                     "Sector": "-",
                     "Price": "-",
                     "RSI": "-",
-                    "Signals": f"Error: {str(e)}"
+                    "Signals": f"Error: {str(e)}",
+                    "Action": "HOLD"
                 })
                 signal_types.append("HOLD")
 
         df_portfolio = pd.DataFrame(portfolio_data)
-
-        def highlight_signals(val, signal_type):
-            color_map = {
-                "BUY": "background-color: #f6fff6; border-left: 4px solid #7fc97f;",
-                "SELL": "background-color: #fff6f6; border-left: 4px solid #f0027f;",
-                "HOLD": "background-color: #fdfbe6; border-left: 4px solid #fdc086;"
-            }
-            return color_map.get(signal_type, "background-color: #fdfbe6; border-left: 4px solid #fdc086;")
-
-        # Apply background color to "Signals" column
-        def style_signals(row):
-            idx = row.name
-            signal_type = signal_types[idx] if idx < len(signal_types) else "HOLD"
-            return ["" if col != "Signals" else highlight_signals(row["Signals"], signal_type) for col in row.index]
-
-        st.dataframe(df_portfolio.style.apply(style_signals, axis=1))
+        st.dataframe(df_portfolio)
     else:
         st.info("Your portfolio is empty. Add stocks to get started.")
 
@@ -349,7 +377,8 @@ def main():
                 df = calculate_technical_indicators(df)
 
                 # Generate signals
-                signals = generate_signals(df)
+                signals, scores = generate_signals(df, symbol)
+                overall_action = score_signals(scores)
 
                 # Display company info
                 st.subheader(f"{company_name} ({symbol})")
@@ -388,6 +417,7 @@ def main():
                         else:
                             st.markdown(f"🟡 **{indicator}**: <span class='signal-hold'>{signal}</span> - {description}",
                                         unsafe_allow_html=True)
+                    st.markdown(f"**Overall Action:** `{overall_action}`")
                 else:
                     st.info("No strong signals detected. Consider holding current position.")
 
