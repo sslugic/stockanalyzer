@@ -277,137 +277,143 @@ def portfolio_tab():
         st.info("Your portfolio is empty. Add stocks to get started.")
 
 def main():
-    st.title("📈 Stock Signals Analysis Dashboard")
-    st.sidebar.title("Settings")
+    # Add tabs for Dashboard and Portfolio
+    tab1, tab2 = st.tabs(["Dashboard", "Portfolio"])
+    with tab1:
+        st.title("📈 Stock Signals Analysis Dashboard")
+        st.sidebar.title("Settings")
 
-    # Input controls
-    symbol = st.sidebar.text_input("Stock Symbol", value="AAPL", help="Enter stock symbol (e.g., AAPL, GOOGL, TSLA)")
-    period_options = ["1mo", "3mo", "6mo", "1y", "2y", "5y"]
-    period = st.sidebar.selectbox("Time Period", period_options, index=3)
-    interval_options = ["1d", "5d", "1wk", "1mo"]
-    interval = st.sidebar.selectbox("Data Interval", interval_options, index=0)
+        # Input controls
+        symbol = st.sidebar.text_input("Stock Symbol", value="AAPL", help="Enter stock symbol (e.g., AAPL, GOOGL, TSLA)")
+        period_options = ["1mo", "3mo", "6mo", "1y", "2y", "5y"]
+        period = st.sidebar.selectbox("Time Period", period_options, index=3)
+        interval_options = ["1d", "5d", "1wk", "1mo"]
+        interval = st.sidebar.selectbox("Data Interval", interval_options, index=0)
 
-    # Auto-refresh option
-    auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)")
+        # Auto-refresh option
+        auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)")
 
-    if auto_refresh:
-        st.sidebar.info("Dashboard will refresh every 30 seconds")
+        if auto_refresh:
+            st.sidebar.info("Dashboard will refresh every 30 seconds")
 
-    if st.sidebar.button("Analyze Stock") or auto_refresh:
-        try:
-            # Fetch data
-            with st.spinner(f"Fetching data for {symbol}..."):
-                ticker = yf.Ticker(symbol)
-                df = ticker.history(period=period, interval=interval)
+        if st.sidebar.button("Analyze Stock") or auto_refresh:
+            try:
+                # Fetch data
+                with st.spinner(f"Fetching data for {symbol}..."):
+                    ticker = yf.Ticker(symbol)
+                    df = ticker.history(period=period, interval=interval)
 
-                if df.empty:
-                    st.error(f"No data found for symbol {symbol}")
-                    return
+                    if df.empty:
+                        st.error(f"No data found for symbol {symbol}")
+                        return
 
-                # Get company info
-                try:
-                    info = ticker.info
-                    company_name = info.get('longName', symbol)
-                    sector = info.get('sector', 'N/A')
-                    market_cap = info.get('marketCap', 'N/A')
-                except:
-                    company_name = symbol
-                    sector = 'N/A'
-                    market_cap = 'N/A'
+                    # Get company info
+                    try:
+                        info = ticker.info
+                        company_name = info.get('longName', symbol)
+                        sector = info.get('sector', 'N/A')
+                        market_cap = info.get('marketCap', 'N/A')
+                    except:
+                        company_name = symbol
+                        sector = 'N/A'
+                        market_cap = 'N/A'
 
-            # Calculate indicators
-            df = calculate_technical_indicators(df)
+                # Calculate indicators
+                df = calculate_technical_indicators(df)
 
-            # Generate signals
-            signals = generate_signals(df)
+                # Generate signals
+                signals = generate_signals(df)
 
-            # Display company info
-            st.subheader(f"{company_name} ({symbol})")
+                # Display company info
+                st.subheader(f"{company_name} ({symbol})")
 
-            col1, col2, col3, col4 = st.columns(4)
+                col1, col2, col3, col4 = st.columns(4)
 
-            latest_price = df['Close'].iloc[-1]
-            prev_close = df['Close'].iloc[-2]
-            price_change = latest_price - prev_close
-            price_change_pct = (price_change / prev_close) * 100
+                latest_price = df['Close'].iloc[-1]
+                prev_close = df['Close'].iloc[-2]
+                price_change = latest_price - prev_close
+                price_change_pct = (price_change / prev_close) * 100
 
-            with col1:
-                st.metric("Current Price", f"${latest_price:.2f}",
-                          f"{price_change:+.2f} ({price_change_pct:+.2f}%)")
+                with col1:
+                    st.metric("Current Price", f"${latest_price:.2f}",
+                              f"{price_change:+.2f} ({price_change_pct:+.2f}%)")
 
-            with col2:
-                st.metric("Volume", f"{df['Volume'].iloc[-1]:,}")
+                with col2:
+                    st.metric("Volume", f"{df['Volume'].iloc[-1]:,}")
 
-            with col3:
-                st.metric("RSI", f"{df['RSI'].iloc[-1]:.2f}")
+                with col3:
+                    st.metric("RSI", f"{df['RSI'].iloc[-1]:.2f}")
 
-            with col4:
-                st.metric("Sector", sector)
+                with col4:
+                    st.metric("Sector", sector)
 
-            # Display signals
-            st.subheader("🚦 Trading Signals")
+                # Display signals
+                st.subheader("🚦 Trading Signals")
 
-            if signals:
-                for indicator, signal, description in signals:
-                    if signal == "BUY":
-                        st.markdown(f"🟢 **{indicator}**: <span class='signal-buy'>{signal}</span> - {description}",
-                                    unsafe_allow_html=True)
-                    elif signal == "SELL":
-                        st.markdown(f"🔴 **{indicator}**: <span class='signal-sell'>{signal}</span> - {description}",
-                                    unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"🟡 **{indicator}**: <span class='signal-hold'>{signal}</span> - {description}",
-                                    unsafe_allow_html=True)
-            else:
-                st.info("No strong signals detected. Consider holding current position.")
+                if signals:
+                    for indicator, signal, description in signals:
+                        if signal == "BUY":
+                            st.markdown(f"🟢 **{indicator}**: <span class='signal-buy'>{signal}</span> - {description}",
+                                        unsafe_allow_html=True)
+                        elif signal == "SELL":
+                            st.markdown(f"🔴 **{indicator}**: <span class='signal-sell'>{signal}</span> - {description}",
+                                        unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"🟡 **{indicator}**: <span class='signal-hold'>{signal}</span> - {description}",
+                                        unsafe_allow_html=True)
+                else:
+                    st.info("No strong signals detected. Consider holding current position.")
 
-            # Display main chart
-            st.subheader("📊 Technical Analysis Chart")
-            fig = create_main_chart(df, symbol)
-            st.plotly_chart(fig, use_container_width=True)
+                # Display main chart
+                st.subheader("📊 Technical Analysis Chart")
+                fig = create_main_chart(df, symbol)
+                st.plotly_chart(fig, use_container_width=True)
 
-            # Technical indicators summary
-            st.subheader("📋 Technical Indicators Summary")
+                # Technical indicators summary
+                st.subheader("📋 Technical Indicators Summary")
 
-            col1, col2 = st.columns(2)
+                col1, col2 = st.columns(2)
 
-            with col1:
-                st.write("**Trend Indicators:**")
-                st.write(f"• SMA 20: ${df['SMA_20'].iloc[-1]:.2f}")
-                st.write(f"• SMA 50: ${df['SMA_50'].iloc[-1]:.2f}")
-                st.write(f"• EMA 12: ${df['EMA_12'].iloc[-1]:.2f}")
-                st.write(f"• EMA 26: ${df['EMA_26'].iloc[-1]:.2f}")
+                with col1:
+                    st.write("**Trend Indicators:**")
+                    st.write(f"• SMA 20: ${df['SMA_20'].iloc[-1]:.2f}")
+                    st.write(f"• SMA 50: ${df['SMA_50'].iloc[-1]:.2f}")
+                    st.write(f"• EMA 12: ${df['EMA_12'].iloc[-1]:.2f}")
+                    st.write(f"• EMA 26: ${df['EMA_26'].iloc[-1]:.2f}")
 
-                st.write("**Volatility Indicators:**")
-                st.write(f"• BB Upper: ${df['BB_upper'].iloc[-1]:.2f}")
-                st.write(f"• BB Lower: ${df['BB_lower'].iloc[-1]:.2f}")
+                    st.write("**Volatility Indicators:**")
+                    st.write(f"• BB Upper: ${df['BB_upper'].iloc[-1]:.2f}")
+                    st.write(f"• BB Lower: ${df['BB_lower'].iloc[-1]:.2f}")
 
-            with col2:
-                st.write("**Momentum Indicators:**")
-                st.write(f"• RSI: {df['RSI'].iloc[-1]:.2f}")
-                st.write(f"• MACD: {df['MACD'].iloc[-1]:.4f}")
-                st.write(f"• MACD Signal: {df['MACD_signal'].iloc[-1]:.4f}")
-                st.write(f"• Stochastic %K: {df['Stoch_k'].iloc[-1]:.2f}")
-                st.write(f"• Stochastic %D: {df['Stoch_d'].iloc[-1]:.2f}")
+                with col2:
+                    st.write("**Momentum Indicators:**")
+                    st.write(f"• RSI: {df['RSI'].iloc[-1]:.2f}")
+                    st.write(f"• MACD: {df['MACD'].iloc[-1]:.4f}")
+                    st.write(f"• MACD Signal: {df['MACD_signal'].iloc[-1]:.4f}")
+                    st.write(f"• Stochastic %K: {df['Stoch_k'].iloc[-1]:.2f}")
+                    st.write(f"• Stochastic %D: {df['Stoch_d'].iloc[-1]:.2f}")
 
-            # Recent data table
-            st.subheader("📈 Recent Price Data")
-            recent_data = df[['Open', 'High', 'Low', 'Close', 'Volume']].tail(10)
-            st.dataframe(recent_data.style.format({
-                'Open': '${:.2f}',
-                'High': '${:.2f}',
-                'Low': '${:.2f}',
-                'Close': '${:.2f}',
-                'Volume': '{:,}'
-            }))
+                # Recent data table
+                st.subheader("📈 Recent Price Data")
+                recent_data = df[['Open', 'High', 'Low', 'Close', 'Volume']].tail(10)
+                st.dataframe(recent_data.style.format({
+                    'Open': '${:.2f}',
+                    'High': '${:.2f}',
+                    'Low': '${:.2f}',
+                    'Close': '${:.2f}',
+                    'Volume': '{:,}'
+                }))
 
-            # Auto-refresh
-            if auto_refresh:
-                st.rerun()
+                # Auto-refresh
+                if auto_refresh:
+                    st.rerun()
 
-        except Exception as e:
-            st.error(f"Error fetching data: {str(e)}")
-            st.info("Please check the stock symbol and try again.")
+            except Exception as e:
+                st.error(f"Error fetching data: {str(e)}")
+                st.info("Please check the stock symbol and try again.")
+
+    with tab2:
+        portfolio_tab()
 
     # Instructions
     st.sidebar.markdown("---")
